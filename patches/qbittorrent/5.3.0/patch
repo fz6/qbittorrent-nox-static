@@ -1,21 +1,35 @@
 diff --git a/src/base/bittorrent/torrentimpl.cpp b/src/base/bittorrent/torrentimpl.cpp
-index 77d45eeb7..192157f61 100644
+index 77d45eeb7..16aa87a5a 100644
 --- a/src/base/bittorrent/torrentimpl.cpp
 +++ b/src/base/bittorrent/torrentimpl.cpp
-@@ -1798,18 +1798,27 @@ void TorrentImpl::applyFirstLastPiecePriority(const bool enabled)
+@@ -1798,18 +1798,35 @@ void TorrentImpl::applyFirstLastPiecePriority(const bool enabled)
          const lt::download_priority_t piecePrio = LT::toNative(enabled ? DownloadPriority::Maximum : filePrio);
          const TorrentInfo::PieceRange pieceRange = m_torrentInfo.filePieces(fileIndex);
  
 -        // worst case: AVI index = 1% of total file size (at the end of the file)
-+        // Worst case: AVI index = 1% of total file size (at the end of the file)
-         const int numPieces = std::ceil(fileSize(fileIndex) * 0.01 / pieceLength());
+-        const int numPieces = std::ceil(fileSize(fileIndex) * 0.01 / pieceLength());
+-        for (int i = 0; i < numPieces; ++i)
+-        {
++        const int filePieceCount = pieceRange.last() - pieceRange.first() + 1;
++        const qint64 fileSizeBytes = fileSize(fileIndex);
 +
-         for (int i = 0; i < numPieces; ++i)
-         {
++        // Head: first 8% of the file, clamped to the number of pieces in the file
++        const int headPieces = std::min(filePieceCount,
++                                        static_cast<int>(std::ceil(fileSizeBytes * 0.08 / pieceLength())));
++
++        // Tail: last 1% of the file (e.g. AVI index at the end), clamped likewise
++        const int tailPieces = std::min(filePieceCount,
++                                        static_cast<int>(std::ceil(fileSizeBytes * 0.01 / pieceLength())));
++
++        for (int i = 0; i < headPieces; ++i)
              piecePriorities[pieceRange.first() + i] = piecePrio;
++
++        for (int i = 0; i < tailPieces; ++i)
              piecePriorities[pieceRange.last() - i] = piecePrio;
-         }
+-        }
  
+-        const int firstPiece = pieceRange.first() + numPieces;
+-        const int lastPiece = pieceRange.last() - numPieces;
 +        // For MAX-priority files, leave the middle pieces ignored while first/last pieces are prioritized.
 +        // Otherwise, retain the file's normal priority.
 +        const lt::download_priority_t middlePrio =
@@ -23,8 +37,8 @@ index 77d45eeb7..192157f61 100644
 +                ? LT::toNative(DownloadPriority::Ignored)
 +                : LT::toNative(filePrio);
 +
-         const int firstPiece = pieceRange.first() + numPieces;
-         const int lastPiece = pieceRange.last() - numPieces;
++        const int firstPiece = pieceRange.first() + headPieces;
++        const int lastPiece = pieceRange.last() - tailPieces;
 +
          for (int pieceIndex = firstPiece; pieceIndex <= lastPiece; ++pieceIndex)
 -            piecePriorities[pieceIndex] = LT::toNative(filePrio);
